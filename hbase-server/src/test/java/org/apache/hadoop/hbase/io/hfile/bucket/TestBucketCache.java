@@ -171,7 +171,7 @@ public class TestBucketCache {
     /*
      * Test the allocator first
      */
-    final List<Integer> BLOCKSIZES = Arrays.asList(4 * 1024, 8 * 1024, 64 * 1024, 96 * 1024);
+    final List<Integer> BLOCKSIZES = Arrays.asList(8 * 1024);
 
     boolean full = false;
     ArrayList<Long> allocations = new ArrayList<>();
@@ -182,7 +182,9 @@ public class TestBucketCache {
       Integer blockSize = null;
       try {
         blockSize = randFrom(tmp);
-        allocations.add(mAllocator.allocateBlock(blockSize));
+        long offset = mAllocator.allocateBlock(blockSize);
+        System.out.println(offset);
+        allocations.add(offset);
       } catch (CacheFullException cfe) {
         tmp.remove(blockSize);
         if (tmp.isEmpty()) full = true;

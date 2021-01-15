@@ -135,11 +135,13 @@ public class BucketCache implements BlockCache, HeapSize {
   final static int DEFAULT_WRITER_QUEUE_ITEMS = 64;
 
   // Store/read block data
+  // IOEngine具体实现各类数据存储，即最终的Block会缓存的地方。
   transient final IOEngine ioEngine;
 
   // Store the block in this map before writing it to cache
   transient final RAMCache ramCache;
   // In this map, store the block's meta data like offset, length
+  //用来存储blockKey与对应物理内存偏移量的映射关系，用来根据blockkey定位具体的block
   transient ConcurrentHashMap<BlockCacheKey, BucketEntry> backingMap;
 
   /**
@@ -263,6 +265,7 @@ public class BucketCache implements BlockCache, HeapSize {
       this.offsetLock = new IdReadWriteLockWithObjectPool<>(ReferenceType.SOFT);
     }
     this.algorithm = conf.get(FILE_VERIFY_ALGORITHM, DEFAULT_FILE_VERIFY_ALGORITHM);
+    //获取实际执行IO任务的引擎  ByteBufferIOEngine  这里是offheap 内部聚合一个ByteBufferArray
     this.ioEngine = getIOEngineFromName(ioEngineName, capacity, persistencePath);
     this.writerThreads = new WriterThread[writerThreadNum];
     long blockNumCapacity = capacity / blockSize;
@@ -296,7 +299,7 @@ public class BucketCache implements BlockCache, HeapSize {
 
     assert writerQueues.size() == writerThreads.length;
     this.ramCache = new RAMCache();
-
+    //用来存储blockKey与对应物理内存偏移量的映射关系
     this.backingMap = new ConcurrentHashMap<>((int) blockNumCapacity);
 
     if (ioEngine.isPersistent() && persistencePath != null) {
@@ -459,6 +462,7 @@ public class BucketCache implements BlockCache, HeapSize {
       return;
     }
     int queueNum = (cacheKey.hashCode() & 0x7FFFFFFF) % writerQueues.size();
+    //WriterThread 每一个线程都有这么一个 BlockingQueue<RAMQueueEntry>
     BlockingQueue<RAMQueueEntry> bq = writerQueues.get(queueNum);
     boolean successfulAddition = false;
     if (wait) {
@@ -864,6 +868,7 @@ public class BucketCache implements BlockCache, HeapSize {
 
   // This handles flushing the RAM cache to IOEngine.
   class WriterThread extends Thread {
+    //这里的inputQueue在创建的时候引用到全局的 writerQueues
     private final BlockingQueue<RAMQueueEntry> inputQueue;
     private volatile boolean writerEnabled = true;
 
@@ -1547,6 +1552,8 @@ public class BucketCache implements BlockCache, HeapSize {
 
   /**
    * Wrapped the delegate ConcurrentMap with maintaining its block's reference count.
+   * RAMCache是一个存储blockkey和block对应关系的HashMap，将需要写入的block首先先存放在RAMCache中、
+   * 后面写入线程异步的写入这些Block到Bucket中,并且将关系保存在BackingMap中
    */
   static class RAMCache {
     /**

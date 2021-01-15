@@ -65,6 +65,7 @@ public final class BucketAllocator {
       Preconditions.checkElementIndex(sizeIndex, bucketSizes.length);
       this.sizeIndex = sizeIndex;
       itemAllocationSize = bucketSizes[sizeIndex];
+      // 每一个bucket中的item(block)个数 例如 bucketCapacity(4 * 513)K,itemAllocationSize: 每一个block(item)的大小
       itemCount = (int) (bucketCapacity / (long) itemAllocationSize);
       freeCount = itemCount;
       usedCount = 0;
@@ -308,20 +309,30 @@ public final class BucketAllocator {
     this.bucketSizes = bucketSizes == null ? DEFAULT_BUCKET_SIZES : bucketSizes;
     Arrays.sort(this.bucketSizes);
     this.bigItemSize = Ints.max(this.bucketSizes);
+    //2M 4*513K  bigItemSize=513k大小 一个bucket最少有个FEWEST_ITEMS_IN_BUCKET个item(block)
     this.bucketCapacity = FEWEST_ITEMS_IN_BUCKET * (long) bigItemSize;
+    //availableSpace为32M  32M/(2M+1k) = 15个buckets
     buckets = new Bucket[(int) (availableSpace / bucketCapacity)];
     if (buckets.length < this.bucketSizes.length)
       throw new BucketAllocatorException("Bucket allocator size too small (" + buckets.length +
         "); must have room for at least " + this.bucketSizes.length + " buckets");
+
+    //HBase会根据每个bucket的size标签对bucket进行分类，相同size标签的bucket由同一个BucketSizeInfo管理
     bucketSizeInfos = new BucketSizeInfo[this.bucketSizes.length];
     for (int i = 0; i < this.bucketSizes.length; ++i) {
       bucketSizeInfos[i] = new BucketSizeInfo(i);
     }
     for (int i = 0; i < buckets.length; ++i) {
+      //bucketCapacity大小为 4*513K
       buckets[i] = new Bucket(bucketCapacity * i);
+      //bucketSize的长度可能小于buckets的大小
+      // 系统会首先从小到大遍历一次所有size标签，为每种size标签分配一个bucket， 分配的bucket的大小是 (4*513)KB
+      // 最后所有剩余的bucket都分配最大的size标签，默认分配 (512+1)K
       bucketSizeInfos[i < this.bucketSizes.length ? i : this.bucketSizes.length - 1]
+        //初始化bucketSizeInfos中每一个bucket信息
           .instantiateBucket(buckets[i]);
     }
+    //buckets.length = 15 bucketCapacity大小为 4*513K
     this.totalSize = ((long) buckets.length) * bucketCapacity;
     if (LOG.isInfoEnabled()) {
       LOG.info("Cache totalSize=" + this.totalSize + ", buckets=" + this.buckets.length +
